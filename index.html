@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dialog flowchart editor</title>
+<style>
+	* { box-sizing: border-box; }
+	:root {
+		--bg: #0d0d0f; --panel: #17171a; --panel2: #1f1f23; --line: #3a3a42;
+		--text: #e8e8ec; --dim: #8a8a94; --accent: #ffb000;
+		--npc: #3aa0ff; --player: #33e08a; --choice: #c084fc; --danger: #ff5c5c;
+	}
+	html,body { margin:0; padding:0; background:var(--bg); color:var(--text); font-family:"JetBrains Mono","Courier New",monospace; text-transform:lowercase; height:100%; overflow:hidden; }
+	button,input,select,textarea { font-family:inherit; text-transform:lowercase; }
+	button { background:var(--panel2); color:var(--text); border:2px solid var(--line); padding:7px 10px; cursor:pointer; box-shadow:3px 3px 0 #000; font-size:12px; }
+	button:hover { border-color:var(--accent); }
+	button:active { box-shadow:1px 1px 0 #000; transform:translate(2px,2px); }
+	button.accent { background:var(--accent); color:#000; font-weight:bold; }
+	button.danger { background:var(--danger); color:#000; }
+	button.tiny { padding:2px 6px; font-size:10px; box-shadow:2px 2px 0 #000; }
+	input[type=text],textarea,select { background:#0a0a0b; border:2px solid var(--line); color:var(--text); padding:5px 7px; width:100%; font-size:12px; }
+	input:focus,textarea:focus,select:focus { outline:none; border-color:var(--accent); }
+	textarea { resize:none; }
+	.topbar { display:flex; align-items:center; gap:8px; padding:10px 14px; background:var(--panel); border-bottom:3px solid var(--line); flex-wrap:wrap; }
+	.topbar h1 { font-size:15px; margin:0 10px 0 0; color:var(--accent); letter-spacing:1px; }
+	.topbar input { width:130px; }
+	.topbar .sp { flex:1; }
+	.wrap { position:relative; width:100%; height:calc(100vh - 54px); overflow:auto; background:
+		linear-gradient(var(--panel2) 1px, transparent 1px), linear-gradient(90deg, var(--panel2) 1px, transparent 1px);
+		background-size:32px 32px; }
+	.canvas { position:relative; width:2600px; height:1700px; transform-origin:0 0; }
+	svg.links { position:absolute; top:0; left:0; width:2600px; height:1700px; pointer-events:none; }
+	.block { position:absolute; width:220px; border:2px solid var(--line); background:var(--panel); box-shadow:4px 4px 0 #000; }
+	.block.npc { border-color:var(--npc); }
+	.block.choice { border-color:var(--choice); width:250px; }
+	.block.start { outline:2px dashed var(--accent); outline-offset:3px; }
+	.bhead { display:flex; align-items:center; gap:5px; padding:5px 6px; background:var(--panel2); cursor:grab; font-size:10px; }
+	.block.npc .bhead { color:var(--npc); }
+	.block.player .bhead { color:var(--player); }
+	.block.choice .bhead { color:var(--choice); }
+	.bhead .id { flex:1; }
+	.bbody { padding:8px; }
+	.bbody textarea { height:50px; font-size:11px; margin-bottom:6px; }
+	.bbody .row2 { display:flex; gap:4px; margin-bottom:4px; }
+	.bbody .row2 input { font-size:10px; }
+	.opt { border:1px solid var(--line); padding:5px; margin-bottom:5px; background:var(--panel2); }
+	.opt textarea { height:34px; margin-bottom:4px; }
+	.opt .oactions { display:flex; gap:4px; }
+	.linking { outline:2px solid var(--accent) !important; }
+	.hint-bar { position:absolute; bottom:0; left:0; right:0; background:var(--accent); color:#000; font-size:11px; padding:5px 10px; display:none; z-index:5; }
+	.hint-bar.on { display:block; }
+	.modal-bg { display:none; position:fixed; inset:0; background:rgba(0,0,0,.75); z-index:20; align-items:center; justify-content:center; }
+	.modal-bg.open { display:flex; }
+	.modal { background:var(--panel); border:3px solid var(--accent); box-shadow:6px 6px 0 #000; padding:16px; width:600px; max-width:92vw; max-height:86vh; overflow-y:auto; }
+	.modal h2 { margin-top:0; font-size:13px; color:var(--accent); }
+	.modal-actions { display:flex; gap:8px; margin-top:12px; justify-content:flex-end; }
+	.f { display:block; font-size:10px; color:var(--dim); margin:8px 0 3px; letter-spacing:1px; }
+	.cfgrow { display:flex; gap:6px; margin-bottom:5px; }
+	.cfgrow input { flex:1; }
+	#lua-out { width:100%; height:400px; font-size:11px; }
+	.badge { color:var(--dim); font-size:11px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+	<h1>dialog flowchart</h1>
+	<input type="text" id="npc-name" placeholder="npc name">
+	<button id="add-dialogue" style="border-color:var(--npc)">+ dialogue line</button>
+	<button id="add-choice" style="border-color:var(--choice)">+ choice</button>
+	<button id="zoom-out" class="tiny">-</button>
+	<span id="zoom-label" class="badge">100%</span>
+	<button id="zoom-in" class="tiny">+</button>
+	<button id="zoom-reset" class="tiny">reset zoom</button>
+	<div class="sp"></div>
+	<button id="btn-test" class="accent">test</button>
+	<button id="btn-config">config</button>
+	<button id="btn-new">new</button>
+	<button id="btn-save-json">save json</button>
+	<button id="btn-load-json">load json</button>
+	<button id="btn-load-lua">load module</button>
+	<button class="accent" id="btn-export-lua">export lua</button>
+	<input type="file" id="file-json" accept=".json" style="display:none">
+	<input type="file" id="file-lua" accept=".lua,.txt" style="display:none">
+</div>
+
+<div class="wrap" id="wrap">
+	<div class="canvas" id="canvas">
+		<svg class="links" id="links"><defs>
+			<marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 z" fill="#ffb000"/></marker>
+		</defs></svg>
+	</div>
+</div>
+<div class="hint-bar" id="hint-bar">linking: click a block to connect to it, or press esc to cancel</div>
+
+<div class="modal-bg" id="test-modal">
+	<div class="modal" style="width:520px">
+		<h2>test dialogue</h2>
+		<div id="test-node-type" class="badge" style="margin-bottom:8px"></div>
+		<div id="test-text" style="background:#0a0a0b;border:2px solid var(--line);padding:12px;min-height:90px;white-space:pre-wrap;line-height:1.5"></div>
+		<div id="test-choices" style="display:grid;gap:6px;margin-top:10px"></div>
+		<div id="test-status" class="badge" style="margin-top:10px"></div>
+		<div class="modal-actions">
+			<button id="test-continue" class="accent">continue</button>
+			<button id="test-restart">restart</button>
+			<button id="close-test">close</button>
+		</div>
+	</div>
+</div>
+
+<div class="modal-bg" id="cfg-modal">
+	<div class="modal">
+		<h2>config</h2>
+		<label class="f">voice sfx</label>
+		<input type="text" id="cfg-voice">
+		<div class="f">poses</div>
+		<div id="cfg-poses"></div>
+		<button class="tiny" id="add-pose">+ pose</button>
+		<div class="f">actions</div>
+		<div id="cfg-actions"></div>
+		<button class="tiny" id="add-action">+ action</button>
+		<div class="modal-actions"><button class="accent" id="close-cfg">close</button></div>
+	</div>
+</div>
+
+<div class="modal-bg" id="lua-modal">
+	<div class="modal">
+		<h2>exported lua module</h2>
+		<textarea id="lua-out" readonly></textarea>
+		<div class="modal-actions">
+			<button id="copy-lua">copy</button>
+			<button class="accent" id="dl-lua">download .lua</button>
+			<button id="close-lua">close</button>
+		</div>
+	</div>
+</div>
+
+<div class="modal-bg" id="load-lua-modal">
+	<div class="modal">
+		<h2>load from module</h2>
+		<p class="badge">paste a module exported by this tool for a full flowchart restore. plain hand-written modules only recover config.</p>
+		<textarea id="lua-in" style="height:280px"></textarea>
+		<div class="modal-actions">
+			<button id="pick-lua-file">load .lua file</button>
+			<button class="accent" id="parse-lua">parse</button>
+			<button id="close-load-lua">close</button>
+		</div>
+	</div>
+</div>
+
+<script>
+let state, nodeCounter = 0, linking = null; // linking = {id, optIndex|null}
+
+function freshState() {
+	return {
+		npcName: "npc",
+		config: { poses: { idle: "rbxassetid://0" }, actions: {}, voiceSFX: "dialogDefaultVoice" },
+		startNode: "n1",
+		nodes: { n1: { type: "npc", x: 120, y: 100, text: "hey there.", pose: "idle", action: "", next: null } }
+	};
+}
+
+function removePlayerNodes() {
+	let changed = true;
+
+	while (changed) {
+		changed = false;
+
+		Object.keys(state.nodes).forEach(id => {
+			const node = state.nodes[id];
+			if (!node || node.type !== "player") return;
+
+			const next = node.next || null;
+
+			if (state.startNode === id) {
+				state.startNode = next;
+			}
+
+			Object.values(state.nodes).forEach(other => {
+				if (!other || other === node) return;
+
+				if (other.next === id) {
+					other.next = next;
+					changed = true;
+				}
+
+				if (other.options) {
+					other.options.forEach(option => {
+						if (option.next === id) {
+							option.next = next;
+							changed = true;
+						}
+					});
+				}
+			});
+
+			delete state.nodes[id];
+			changed = true;
+		});
+	}
+}
+
+function persist() { try { localStorage.setItem("dfc_project", JSON.stringify(state)); } catch (e) {} }
+
+let zoom = 1;
+const BASE_CANVAS_WIDTH = 2600;
+const BASE_CANVAS_HEIGHT = 1700;
+
+function clampZoom(value) {
+	return Math.min(2.5, Math.max(0.4, value));
+}
+
+function applyZoom(nextZoom, clientX = null, clientY = null) {
+	const wrap = document.getElementById("wrap");
+	const oldZoom = zoom;
+	const rect = wrap.getBoundingClientRect();
+
+	if (clientX !== null && clientY !== null) {
+		const localX = clientX - rect.left;
+		const localY = clientY - rect.top;
+		const contentX = (wrap.scrollLeft + localX) / oldZoom;
+		const contentY = (wrap.scrollTop + localY) / oldZoom;
+
+		zoom = clampZoom(nextZoom);
+
+		wrap.scrollLeft = Math.max(0, contentX * zoom - localX);
+		wrap.scrollTop = Math.max(0, contentY * zoom - localY);
+	} else {
+		const centerX = wrap.clientWidth / 2;
+		const centerY = wrap.clientHeight / 2;
+		const contentX = (wrap.scrollLeft + centerX) / oldZoom;
+		const contentY = (wrap.scrollTop + centerY) / oldZoom;
+
+		zoom = clampZoom(nextZoom);
+
+		wrap.scrollLeft = Math.max(0, contentX * zoom - centerX);
+		wrap.scrollTop = Math.max(0, contentY * zoom - centerY);
+	}
+
+	const canvas = document.getElementById("canvas");
+	canvas.style.transform = `scale(${zoom})`;
+	canvas.style.width = `${BASE_CANVAS_WIDTH * zoom}px`;
+	canvas.style.height = `${BASE_CANVAS_HEIGHT * zoom}px`;
+	document.getElementById("zoom-label").textContent = `${Math.round(zoom * 100)}%`;
+	drawLines();
+}
+
+function restore() {
+	try {
+		const raw = localStorage.getItem("dfc_project");
+		if (raw) { state = JSON.parse(raw); removePlayerNodes(); recount(); return; }
+	} catch (e) {}
+	state = freshState(); recount();
+}
+function recount() {
+	nodeCounter = 0;
+	Object.keys(state.nodes).forEach(id => { const m = id.match(/^n(\d+)$/); if (m) nodeCounter = Math.max(nodeCounter, +m[1]); });
+}
+function newId() { nodeCounter++; return "n" + nodeCounter; }
+function esc(s) { return (s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function attr(s) { return (s || "").replace(/"/g,"&quot;"); }
+
+function addBlock(type) {
+	const id = newId();
+	const n = {
+		type: type,
+		x: 80 + (nodeCounter % 6) * 40,
+		y: 80 + Math.floor(nodeCounter / 6) * 60,
+		text: "",
+		pose: "",
+		action: "",
+		next: null
+	};
+
+	if (type === "choice") {
+		n.text = "ask a question...";
+		n.options = [
+			{ text: "yes", next: null },
+			{ text: "no", next: null }
+		];
+		delete n.next;
+	}
+
+	state.nodes[id] = n;
+
+	if (!state.startNode) {
+		state.startNode = id;
+	}
+
+	render();
+}
+
+function deleteBlock(id) {
+	delete state.nodes[id];
+	Object.values(state.nodes).forEach(n => {
+		if (n.next === id) n.next = null;
+		if (n.options) n.options.forEach(o => { if (o.next === id) o.next = null; });
+	});
+	if (state.startNode === id) { const rest = Object.keys(state.nodes); state.startNode = rest.length ? rest[0] : null; }
+	render();
+}
+
+function startLink(id, optIndex) {
+	linking = { id, optIndex };
+	document.getElementById("hint-bar").classList.add("on");
+	render();
+}
+function finishLink(targetId) {
+	if (!linking) return;
+	const n = state.nodes[linking.id];
+	if (linking.optIndex === null) n.next = targetId === linking.id ? null : targetId;
+	else n.options[linking.optIndex].next = targetId === linking.id ? null : targetId;
+	linking = null;
+	document.getElementById("hint-bar").classList.remove("on");
+	render();
+}
+document.addEventListener("keydown", e => {
+	if (e.key === "Escape" && linking) {
+		linking = null;
+		document.getElementById("hint-bar").classList.remove("on");
+		render();
+		return;
+	}
+
+	if (e.key === "Escape" && document.getElementById("test-modal").classList.contains("open")) {
+		closeTest();
+	}
+});
+
+function blockHtml(id, n) {
+	const startCls = id === state.startNode ? " start" : "";
+	const linkCls = linking && linking.id === id && linking.optIndex === null ? " linking" : "";
+	let inner = "";
+
+	if (n.type === "choice") {
+		inner += `<div class="bbody"><textarea data-f="text" placeholder="question npc asks">${esc(n.text)}</textarea><div class="f">options</div>`;
+
+		n.options.forEach((o, i) => {
+			const optLinkCls = linking && linking.id === id && linking.optIndex === i ? " linking" : "";
+
+			inner += `<div class="opt${optLinkCls}">
+				<textarea data-opt="${i}" placeholder="player's response text">${esc(o.text)}</textarea>
+				<div class="oactions">
+					<button class="tiny" data-act="link-opt" data-i="${i}" style="flex:1">link${o.next ? " -> " + o.next : ""}</button>
+					<button class="tiny danger" data-act="del-opt" data-i="${i}">x</button>
+				</div>
+			</div>`;
+		});
+
+		inner += `<button class="tiny" data-act="add-opt" style="width:100%">+ option</button></div>`;
+	} else {
+		inner = `<div class="bbody">
+			<textarea data-f="text" placeholder="what the npc says">${esc(n.text)}</textarea>
+			<div class="row2"><input type="text" data-f="pose" placeholder="pose" value="${attr(n.pose)}"><input type="text" data-f="action" placeholder="action" value="${attr(n.action)}"></div>
+			<button class="tiny" data-act="link-next" style="width:100%">link${n.next ? " -> " + n.next : ""}</button>
+		</div>`;
+	}
+
+	return `<div class="block ${n.type}${startCls}${linkCls}" data-id="${id}" style="left:${n.x}px; top:${n.y}px">
+		<div class="bhead">
+			<span class="id">${id} :: ${n.type === "npc" ? "dialogue" : n.type}</span>
+			<button class="tiny" data-act="set-start">start</button>
+			<button class="tiny danger" data-act="del">x</button>
+		</div>
+		${inner}
+	</div>`;
+}
+
+let testState = null;
+
+function openTest() {
+	const ids = Object.keys(state.nodes);
+
+	if (!state.startNode || !state.nodes[state.startNode]) {
+		alert("set a start node before testing.");
+		return;
+	}
+
+	if (!ids.length) {
+		alert("add at least one dialogue or choice node.");
+		return;
+	}
+
+	testState = {
+		current: state.startNode,
+		waitingForChoice: false,
+		finished: false
+	};
+
+	document.getElementById("test-modal").classList.add("open");
+	renderTestNode();
+}
+
+function closeTest() {
+	testState = null;
+	document.getElementById("test-modal").classList.remove("open");
+}
+
+function renderTestNode() {
+	const typeEl = document.getElementById("test-node-type");
+	const textEl = document.getElementById("test-text");
+	const choicesEl = document.getElementById("test-choices");
+	const statusEl = document.getElementById("test-status");
+	const continueBtn = document.getElementById("test-continue");
+
+	choicesEl.innerHTML = "";
+	continueBtn.disabled = false;
+
+	if (!testState || testState.finished) {
+		typeEl.textContent = "flow complete";
+		textEl.textContent = "dialogue flow ended.";
+		statusEl.textContent = "no more nodes.";
+		continueBtn.textContent = "continue";
+		continueBtn.disabled = true;
+		return;
+	}
+
+	const node = state.nodes[testState.current];
+
+	if (!node) {
+		testState.finished = true;
+		renderTestNode();
+		return;
+	}
+
+	if (node.type === "choice") {
+		typeEl.textContent = "choice";
+		textEl.textContent = node.text || "(empty question)";
+		statusEl.textContent = "choose a response.";
+
+		testState.waitingForChoice = true;
+		continueBtn.disabled = true;
+		continueBtn.textContent = "continue";
+
+		node.options.forEach((option, index) => {
+			const button = document.createElement("button");
+			button.textContent = option.text || `option ${index + 1}`;
+			button.style.textAlign = "left";
+
+			button.onclick = () => {
+				testState.current = option.next || null;
+				testState.waitingForChoice = false;
+
+				if (!testState.current) {
+					testState.finished = true;
+				}
+
+				renderTestNode();
+			};
+
+			choicesEl.appendChild(button);
+		});
+
+		return;
+	}
+
+	typeEl.textContent = "dialogue line";
+	textEl.textContent = node.text || "(empty dialogue)";
+	statusEl.textContent = node.next ? "press continue to follow the flow." : "this is the end of the flow.";
+	continueBtn.textContent = node.next ? "continue" : "finish";
+}
+
+function continueTest() {
+	if (!testState || testState.finished || testState.waitingForChoice) {
+		return;
+	}
+
+	const node = state.nodes[testState.current];
+
+	if (!node || !node.next) {
+		testState.finished = true;
+		renderTestNode();
+		return;
+	}
+
+	testState.current = node.next;
+	renderTestNode();
+}
+
+function render() {
+	document.getElementById("npc-name").value = state.npcName;
+	const canvas = document.getElementById("canvas");
+	const svg = document.getElementById("links");
+	canvas.querySelectorAll(".block").forEach(b => b.remove());
+	Object.keys(state.nodes).forEach(id => {
+		canvas.insertAdjacentHTML("beforeend", blockHtml(id, state.nodes[id]));
+	});
+	wireBlocks();
+	drawLines();
+	persist();
+}
+
+function wireBlocks() {
+	document.querySelectorAll(".block").forEach(el => {
+		const id = el.dataset.id;
+		const n = state.nodes[id];
+
+		el.querySelector(".bhead").addEventListener("mousedown", e => {
+			if (e.target.tagName === "BUTTON") return;
+			const startX = e.clientX, startY = e.clientY, ox = n.x, oy = n.y;
+			function move(ev) {
+				n.x = ox + (ev.clientX - startX) / zoom;
+				n.y = oy + (ev.clientY - startY) / zoom;
+				el.style.left = n.x + "px"; el.style.top = n.y + "px";
+				drawLines();
+			}
+			function up() { document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); persist(); }
+			document.addEventListener("mousemove", move);
+			document.addEventListener("mouseup", up);
+		});
+
+		el.addEventListener("click", e => {
+			if (linking && linking.id !== id && !e.target.closest("button")) { finishLink(id); return; }
+			const act = e.target.dataset.act;
+			if (act === "del") deleteBlock(id);
+			else if (act === "set-start") { state.startNode = id; render(); }
+			else if (act === "link-next") { linking && linking.id === id ? (linking = null, document.getElementById("hint-bar").classList.remove("on"), render()) : startLink(id, null); }
+			else if (act === "link-opt") { const i = +e.target.dataset.i; startLink(id, i); }
+			else if (act === "add-opt") {
+				n.options.push({
+					text: n.options.length === 0 ? "yes" : n.options.length === 1 ? "no" : "",
+					next: null
+				});
+				render();
+			}
+			else if (act === "del-opt") { n.options.splice(+e.target.dataset.i, 1); render(); }
+		});
+
+		el.querySelectorAll("[data-f]").forEach(inp => inp.addEventListener("input", () => { n[inp.dataset.f] = inp.value; persist(); }));
+		el.querySelectorAll("[data-opt]").forEach(inp => inp.addEventListener("input", () => { n.options[+inp.dataset.opt].text = inp.value; persist(); }));
+	});
+}
+
+function drawLines() {
+	const svg = document.getElementById("links");
+	svg.querySelectorAll("path.conn").forEach(p => p.remove());
+	function line(sx, sy, tx, ty) {
+		const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+		path.setAttribute("class", "conn");
+		path.setAttribute("d", `M${sx},${sy} C${sx},${sy+50} ${tx},${ty-50} ${tx},${ty}`);
+		path.setAttribute("stroke", "#ffb000"); path.setAttribute("stroke-width", "2"); path.setAttribute("fill", "none");
+		path.setAttribute("marker-end", "url(#arrow)");
+		svg.appendChild(path);
+	}
+	const canvas = document.getElementById("canvas");
+	Object.keys(state.nodes).forEach(id => {
+		const n = state.nodes[id];
+		const el = canvas.querySelector(`.block[data-id="${id}"]`);
+		if (!el) return;
+		const sx0 = n.x + el.offsetWidth / 2, sy = n.y + el.offsetHeight;
+		if (n.type === "choice") {
+			const cnt = n.options.length;
+			n.options.forEach((o, i) => {
+				if (!o.next || !state.nodes[o.next]) return;
+				const t = state.nodes[o.next], tel = canvas.querySelector(`.block[data-id="${o.next}"]`);
+				const sx = sx0 + (i - (cnt - 1) / 2) * 22;
+				line(sx, sy, t.x + tel.offsetWidth / 2, t.y);
+			});
+		} else if (n.next && state.nodes[n.next]) {
+			const t = state.nodes[n.next], tel = canvas.querySelector(`.block[data-id="${n.next}"]`);
+			line(sx0, sy, t.x + tel.offsetWidth / 2, t.y);
+		}
+	});
+}
+
+function renderCfgTable(id, obj) {
+	const el = document.getElementById(id);
+	el.innerHTML = "";
+	Object.keys(obj).forEach(k => {
+		const row = document.createElement("div");
+		row.className = "cfgrow";
+		row.innerHTML = `<input type="text" value="${attr(k)}" data-r="k"><input type="text" value="${attr(obj[k])}" data-r="v"><button class="tiny danger" data-r="d">x</button>`;
+		row.querySelector('[data-r="k"]').addEventListener("change", e => { const nk = e.target.value.trim(); if (!nk || nk === k) { e.target.value = k; return; } const v = obj[k]; delete obj[k]; obj[nk] = v; renderCfgTable(id, obj); persist(); });
+		row.querySelector('[data-r="v"]').addEventListener("input", e => { obj[k] = e.target.value; persist(); });
+		row.querySelector('[data-r="d"]').addEventListener("click", () => { delete obj[k]; renderCfgTable(id, obj); persist(); });
+		el.appendChild(row);
+	});
+}
+function openCfg() {
+	document.getElementById("cfg-voice").value = state.config.voiceSFX;
+	renderCfgTable("cfg-poses", state.config.poses);
+	renderCfgTable("cfg-actions", state.config.actions);
+	document.getElementById("cfg-modal").classList.add("open");
+}
+
+function luaStr(s) { return '"' + String(s || "").replace(/\\/g,"\\\\").replace(/"/g,'\\"').replace(/\n/g,"\\n") + '"'; }
+
+function buildLua() {
+	const c = state.config;
+	let out = "--[[EDITOR_DATA\n" + JSON.stringify(state) + "\nEDITOR_DATA]]\n\n";
+
+	out += "local Dialog = {}\n\nDialog.Config = {\n\tPoses = {\n";
+	Object.keys(c.poses).forEach(k => out += `\t\t[${luaStr(k)}] = ${luaStr(c.poses[k])},\n`);
+	out += "\t},\n\tActions = {\n";
+	Object.keys(c.actions).forEach(k => out += `\t\t[${luaStr(k)}] = ${luaStr(c.actions[k])},\n`);
+	out += `\t},\n\tVoiceSFX = ${luaStr(c.voiceSFX)},\n}\n\nlocal Nodes = {}\n\n`;
+
+	Object.keys(state.nodes).forEach(id => {
+		const n = state.nodes[id];
+
+		out += `Nodes[${luaStr(id)}] = {\n`;
+		out += `\tType = ${luaStr(n.type)},\n`;
+		out += `\tText = ${luaStr(n.text)},\n`;
+		out += `\tPose = ${luaStr(n.pose)},\n`;
+		out += `\tAction = ${luaStr(n.action)},\n`;
+
+		if (n.type === "choice") {
+			out += "\tOptions = {\n";
+			n.options.forEach(o => {
+				out += `\t\t{ Choice = ${luaStr(o.text)}, Next = ${o.next ? luaStr(o.next) : "nil"} },\n`;
+			});
+			out += "\t},\n";
+		} else {
+			out += `\tNext = ${n.next ? luaStr(n.next) : "nil"},\n`;
+		}
+
+		out += "}\n\n";
+	});
+
+	out += `function Dialog.Interacted(D)
+\tlocal current = ${state.startNode ? luaStr(state.startNode) : "nil"}
+
+\twhile current do
+\t\tlocal node = Nodes[current]
+\t\tif not node then break end
+
+\t\tif node.Type == "npc" then
+\t\t\tD:CreateDialog({
+\t\t\t\tText = node.Text,
+\t\t\t\tPose = node.Pose,
+\t\t\t\tAction = node.Action
+\t\t\t})
+
+\t\t\tcurrent = node.Next
+
+\t\telseif node.Type == "choice" then
+\t\t\t--// choice text is still spoken by the npc.
+\t\t\tD:CreateDialog({
+\t\t\t\tText = node.Text,
+\t\t\t\tPose = node.Pose,
+\t\t\t\tAction = node.Action
+\t\t\t})
+
+\t\t\tlocal possible = {}
+
+\t\t\tfor i, o in ipairs(node.Options) do
+\t\t\t\tpossible["opt" .. i] = {
+\t\t\t\t\tChoice = o.Choice
+\t\t\t\t}
+\t\t\tend
+
+\t\t\tlocal chosen = D:GetUserResponse(possible)
+\t\t\tlocal idx = tonumber(chosen:match("opt(%d+)"))
+
+\t\t\tcurrent = idx and node.Options[idx] and node.Options[idx].Next or nil
+
+\t\telse
+\t\t\t--// skip unsupported legacy node types without displaying them.
+\t\t\tcurrent = node.Next
+\t\tend
+\tend
+end
+
+return Dialog
+`;
+
+	return out;
+}
+
+function parseLua(text) {
+	const m = text.match(/--\[\[EDITOR_DATA([\s\S]*?)EDITOR_DATA\]\]/);
+	if (m) {
+		try { state = JSON.parse(m[1].trim()); removePlayerNodes(); recount(); render(); alert("loaded full flowchart from module."); return; }
+		catch (e) { alert("editor data found but couldn't be parsed, falling back to config-only."); }
+	}
+	const ns = freshState(); ns.nodes = {}; ns.startNode = null;
+	const pm = text.match(/Poses\s*=\s*\{([\s\S]*?)\n\t?\}/);
+	if (pm) { ns.config.poses = {}; const re = /\[?"?([\w]+)"?\]?\s*=\s*"([^"]*)"/g; let mm; while ((mm = re.exec(pm[1])) !== null) ns.config.poses[mm[1]] = mm[2]; }
+	const am = text.match(/Actions\s*=\s*\{([\s\S]*?)\n\t?\}/);
+	if (am) { ns.config.actions = {}; const re = /\[?"?([\w]+)"?\]?\s*=\s*"([^"]*)"/g; let mm; while ((mm = re.exec(am[1])) !== null) ns.config.actions[mm[1]] = mm[2]; }
+	const vm = text.match(/VoiceSFX\s*=\s*"([^"]*)"/);
+	if (vm) ns.config.voiceSFX = vm[1];
+	ns.nodes.n1 = { type: "npc", x: 100, y: 100, text: "(recovered config only, rebuild your flowchart)", pose: "idle", action: "", next: null };
+	ns.startNode = "n1";
+	state = ns; recount(); render();
+	alert("this module wasn't exported by this tool, so only config was recovered.");
+}
+
+document.getElementById("add-dialogue").onclick = () => addBlock("npc");
+document.getElementById("add-choice").onclick = () => addBlock("choice");
+document.getElementById("npc-name").oninput = e => { state.npcName = e.target.value; persist(); };
+document.getElementById("btn-config").onclick = openCfg;
+document.getElementById("close-cfg").onclick = () => document.getElementById("cfg-modal").classList.remove("open");
+document.getElementById("cfg-voice").oninput = e => { state.config.voiceSFX = e.target.value; persist(); };
+document.getElementById("add-pose").onclick = () => { let k = "pose" + (Object.keys(state.config.poses).length + 1); while (state.config.poses[k]) k += "_"; state.config.poses[k] = "rbxassetid://0"; renderCfgTable("cfg-poses", state.config.poses); persist(); };
+document.getElementById("add-action").onclick = () => { let k = "action" + (Object.keys(state.config.actions).length + 1); while (state.config.actions[k]) k += "_"; state.config.actions[k] = "rbxassetid://0"; renderCfgTable("cfg-actions", state.config.actions); persist(); };
+
+document.getElementById("btn-new").onclick = () => { if (confirm("start a new dialog? this clears the current project.")) { state = freshState(); recount(); render(); } };
+
+document.getElementById("btn-save-json").onclick = () => {
+	const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+	const url = URL.createObjectURL(blob); const a = document.createElement("a");
+	a.href = url; a.download = (state.npcName || "dialog") + ".json"; a.click(); URL.revokeObjectURL(url);
+};
+document.getElementById("btn-load-json").onclick = () => document.getElementById("file-json").click();
+document.getElementById("file-json").addEventListener("change", e => {
+	const file = e.target.files[0]; if (!file) return;
+	const r = new FileReader();
+	r.onload = () => { try { state = JSON.parse(r.result); recount(); render(); } catch (err) { alert("couldn't parse that json file."); } };
+	r.readAsText(file); e.target.value = "";
+});
+
+document.getElementById("btn-export-lua").onclick = () => { document.getElementById("lua-out").value = buildLua(); document.getElementById("lua-modal").classList.add("open"); };
+document.getElementById("close-lua").onclick = () => document.getElementById("lua-modal").classList.remove("open");
+document.getElementById("copy-lua").onclick = () => navigator.clipboard.writeText(document.getElementById("lua-out").value).catch(() => {});
+document.getElementById("dl-lua").onclick = () => {
+	const blob = new Blob([document.getElementById("lua-out").value], { type: "text/plain" });
+	const url = URL.createObjectURL(blob); const a = document.createElement("a");
+	a.href = url; a.download = "Dialog.lua"; a.click(); URL.revokeObjectURL(url);
+};
+
+document.getElementById("btn-load-lua").onclick = () => { document.getElementById("lua-in").value = ""; document.getElementById("load-lua-modal").classList.add("open"); };
+document.getElementById("close-load-lua").onclick = () => document.getElementById("load-lua-modal").classList.remove("open");
+document.getElementById("parse-lua").onclick = () => { parseLua(document.getElementById("lua-in").value); document.getElementById("load-lua-modal").classList.remove("open"); };
+document.getElementById("pick-lua-file").onclick = () => document.getElementById("file-lua").click();
+document.getElementById("file-lua").addEventListener("change", e => {
+	const file = e.target.files[0]; if (!file) return;
+	const r = new FileReader(); r.onload = () => { document.getElementById("lua-in").value = r.result; }; r.readAsText(file); e.target.value = "";
+});
+
+
+document.getElementById("btn-test").onclick = openTest;
+document.getElementById("close-test").onclick = closeTest;
+document.getElementById("test-restart").onclick = openTest;
+document.getElementById("test-continue").onclick = continueTest;
+
+document.getElementById("zoom-in").onclick = () => applyZoom(zoom + 0.1);
+document.getElementById("zoom-out").onclick = () => applyZoom(zoom - 0.1);
+document.getElementById("zoom-reset").onclick = () => applyZoom(1);
+
+document.getElementById("wrap").addEventListener("wheel", e => {
+	e.preventDefault();
+
+	const direction = e.deltaY < 0 ? 1 : -1;
+	applyZoom(zoom + direction * 0.1, e.clientX, e.clientY);
+}, { passive: false });
+
+
+restore();
+render();
+applyZoom(zoom);
+</script>
+</body>
+</html>
